@@ -1,0 +1,135 @@
+#include "shell.h"
+#include "uart.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+#define CLEAR_CMD "@clear"
+#define ANSI_CLEAR "\033[2J\033[H"
+#define UNKNOWN_MSG "Unknown command\n"
+#define IN_BUF_DIM 512
+#define OUT_BUF_DIM 512
+#define STDOUT_OPTIONS "\033[1m"
+#define STDIN_OPTIONS "\033[33m"
+#define REMOVE_OPTIONS "\033[0m"
+
+struct shell {
+    int uart_fp;
+    char* std_i;
+    char* std_o;
+};
+
+static void renderLine(shell_t shell)
+{
+    fprintf(stdout, "\r\033[2K"); // clear line
+    fprintf(stdout, STDOUT_OPTIONS);
+    fprintf(stdout, "%s", shell->std_o);
+    fprintf(stdout, REMOVE_OPTIONS);
+
+    fprintf(stdout, STDIN_OPTIONS);
+    fprintf(stdout, "%s", shell->std_i);
+    fprintf(stdout, REMOVE_OPTIONS);
+    fflush(stdout);
+}
+
+// The return value is a "\0" terminated sting that is inteded to be written in the
+// stdout, the output buffer is intended to be written in the UART file descriptor
+static void shell_process_cmd(shell_t const shell)
+{
+
+    // if it's a NULL pointer or a 0 len char arr
+    if (!(shell->std_i) || strlen(shell->std_i) == 0)
+        return;
+
+    // if it's not a command print it to uart_fp
+    if (shell->std_i[0] != '@') {
+        uart_write(shell->uart_fp, shell->std_i, strlen(shell->std_i));
+    }
+    // if it's CLEAR_CMD command print an error msg in the stderr
+    else if (strcmp(shell->std_i, CLEAR_CMD) == 0) {
+        fprintf(stderr, "%s", ANSI_CLEAR);
+        fflush(stderr);
+    }
+    // if it's an unknown command print an error msg in the stderr
+    else {
+        fprintf(stderr, "ERROR: %s", UNKNOWN_MSG);
+        fflush(stderr);
+    }
+    return;
+}
+
+int shell_process_stdin(shell_t const shell, char const c)
+{
+    int tmp = 0;
+    if (c == '\n') {
+        // [c, i, \0] len = 2
+        if (strlen(shell->std_i) + 3 < IN_BUF_DIM) {
+            tmp = strlen(shell->std_i);
+            shell->std_i[tmp] = '\r';
+            shell->std_i[tmp + 1] = c;
+            shell->std_i[tmp + 2] = '\0';
+        } else {
+            fprintf(stderr, "ERROR: input buffer overflow");
+            fflush(stderr);
+            return EXIT_FAILURE;
+        }
+
+        shell_process_cmd(shell);
+        renderLine(shell);
+        shell->std_i[0] = '\0';
+        shell->std_o[0] = '\0';
+
+    } else if (c == '\b' || c == '\x7f') {
+        if (strlen(shell->std_i) > 0) {
+            shell->std_i[strlen(shell->std_i) - 1] = '\0';
+        }
+        renderLine(shell);
+    } else {
+        if (strlen(shell->std_i) + 1 < IN_BUF_DIM) {
+            tmp = strlen(shell->std_i);
+            shell->std_i[tmp] = c;
+            shell->std_i[tmp + 1] = '\0';
+            renderLine(shell);
+        } else {
+            fprintf(stderr, "ERROR: input buffer overflow");
+            return EXIT_FAILURE;
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+int shell_process_uart(shell_t const shell, char const* const c_arr)
+{
+    int16_t tmp = strlen(shell->std_o);
+    for (size_t i = 0; i < strlen(c_arr) + 1; i++) {
+        if (tmp + i < OUT_BUF_DIM) {
+            shell->std_o[tmp + i] = c_arr[i];
+        } else {
+            fprintf(stderr, "ERROR: output buffer overflow");
+            return EXIT_FAILURE;
+        }
+    }
+    renderLine(shell);
+    return EXIT_SUCCESS;
+}
+
+int shell_init(shell_t* newShell, char const* const port, int32_t const baud)
+{
+    int uart_fd = uart_open(port, baud);
+    if (uart_fd < 0) {
+        return -1;
+    }
+    *newShell = malloc(sizeof(**newShell));
+    (*newShell)->std_o = malloc(sizeof(*((*newShell)->std_o)) * OUT_BUF_DIM);
+    (*newShell)->std_o[0] = '\0';
+    (*newShell)->std_i = malloc(sizeof(*((*newShell)->std_i)) * IN_BUF_DIM);
+    (*newShell)->std_i[0] = '\0';
+    (*newShell)->uart_fp = uart_fd;
+
+    return uart_fd;
+}
+void shell_free(shell_t shell)
+{
+    free(shell->std_o);
+    free(shell->std_i);
+    free(shell);
+}
