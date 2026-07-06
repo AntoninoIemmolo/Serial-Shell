@@ -1,4 +1,5 @@
 #include "uart.h"
+#include <stddef.h>
 
 #ifdef _WIN32
 
@@ -173,7 +174,13 @@ void uart_close(int fd)
 
 int uart_read(int fd, char* buf, size_t len)
 {
-    return (int)read(fd, buf, len);
+    int n = read(fd, buf, len);
+    for (size_t i = 0; i < n; i++) {
+        if (buf[i] == '\r') {
+            buf[i] = '\n';
+        }
+    }
+    return (int)n;
 }
 
 int uart_write(int fd, const char* buf, size_t len)

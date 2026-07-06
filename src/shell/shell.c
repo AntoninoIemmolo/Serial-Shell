@@ -1,7 +1,9 @@
 #include "shell.h"
 #include "uart.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define CLEAR_CMD "@clear"
 #define ANSI_CLEAR "\033[2J\033[H"
@@ -22,7 +24,16 @@ static void renderLine(shell_t shell)
 {
     fprintf(stdout, "\r\033[2K"); // clear line
     fprintf(stdout, STDOUT_OPTIONS);
-    fprintf(stdout, "%s", shell->std_o);
+    for (size_t i = 0; i < strlen(shell->std_o); i++) {
+        if (shell->std_o[i] == '\n') {
+            fprintf(stdout, "\r");
+            fprintf(stdout, "%c", shell->std_o[i]);
+            memccpy(shell->std_o, shell->std_o + i + 1, OUT_BUF_DIM - i - 1, OUT_BUF_DIM);
+            i = 0;
+        } else {
+            fprintf(stdout, "%c", shell->std_o[i]);
+        }
+    }
     fprintf(stdout, REMOVE_OPTIONS);
 
     fprintf(stdout, STDIN_OPTIONS);
