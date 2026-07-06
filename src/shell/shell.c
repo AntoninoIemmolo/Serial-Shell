@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CLEAR_CMD "@clear"
 #define ANSI_CLEAR "\033[2J\033[H"
 #define UNKNOWN_MSG "Unknown command\n"
 #define IN_BUF_DIM 512
@@ -46,17 +45,29 @@ static void renderLine(shell_t shell)
 // stdout, the output buffer is intended to be written in the UART file descriptor
 static void shell_process_cmd(shell_t const shell)
 {
-
     // if it's a NULL pointer or a 0 len char arr
     if (!(shell->std_i) || strlen(shell->std_i) == 0)
         return;
 
     // if it's not a command print it to uart_fp
     if (shell->std_i[0] != '@') {
+        // memccpy(shell->std_i, shell->std_i + strlen(shell->std_i), IN_BUF_DIM - strlen(shell->std_i), IN_BUF_DIM);
         uart_write(shell->uart_fp, shell->std_i, strlen(shell->std_i));
+        return;
     }
+
+    // cut the std_i buff to remove \r and \n
+    char cmd[IN_BUF_DIM];
+    memccpy(cmd, shell->std_i, IN_BUF_DIM, IN_BUF_DIM);
+    for (size_t i = 0; i < strlen(cmd); i++) {
+        if (cmd[i] == '\r' || cmd[i] == '\n') {
+            cmd[i] = '\0';
+            break;
+        }
+    }
+
     // if it's CLEAR_CMD command print an error msg in the stderr
-    else if (strcmp(shell->std_i, CLEAR_CMD) == 0) {
+    if (strcmp(cmd, CLEAR_CMD) == 0) {
         fprintf(stderr, "%s", ANSI_CLEAR);
         fflush(stderr);
     }
@@ -65,6 +76,7 @@ static void shell_process_cmd(shell_t const shell)
         fprintf(stderr, "ERROR: %s", UNKNOWN_MSG);
         fflush(stderr);
     }
+    memccpy(shell->std_i, shell->std_i + strlen(shell->std_i), IN_BUF_DIM - strlen(shell->std_i), IN_BUF_DIM);
     return;
 }
 
