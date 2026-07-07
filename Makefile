@@ -1,5 +1,5 @@
 CC      := gcc
-CFLAGS  := -Wall -Wextra -D_GNU_SOURCE -I src/uart -I src/shell -I unity -I src/history -g -fsanitize=address
+CFLAGS  := -Wall -Wextra -D_GNU_SOURCE -I src/uart -I src/shell -I unity -I src/shell/history -g -fsanitize=address
 
 LDFLAGS :=
 
@@ -8,7 +8,7 @@ SRC_ARTIFACT := piSerialServer
 UART_SRC  := src/uart/uart.c
 SHELL_SRC := src/shell/shell.c
 MAIN_SRC  := src/main.c
-HISTORY_SRC := src/history/history.c
+HISTORY_SRC := src/shell/history/history.c
 UNITY_SRC := unity/unity.c
 
 .PHONY: all clean test test_uart test_shell test_integration
