@@ -19,7 +19,7 @@ static void save_original_conf(struct termios* const terminal)
 // is unchanged
 static void set_raw_mode(struct termios terminal)
 {
-    terminal.c_lflag &= ~(ECHO | ICANON);
+    cfmakeraw(&terminal);
     tcsetattr(STDIN_FILENO, TCSANOW, &terminal);
 }
 
@@ -68,9 +68,26 @@ int main(int argc, char* argv[])
             char c;
             if (read(fds[0].fd, &c, 1) <= 0) {
                 fds[0].fd = -1;
-            }
-
-            if (shell_process_stdin(shell, c) == EXIT_FAILURE) {
+            } else if (c == '\x03') {
+                break;
+            } else if (c == '\x1b' || c == '\033') {
+                if (read(fds[0].fd, &c, 1) <= 0) {
+                    fds[0].fd = -1;
+                } else if (c == '[') {
+                    if (read(fds[0].fd, &c, 1) <= 0) {
+                        fds[0].fd = -1;
+                    } else if (c == 'A') {
+                        shell_hist_up(shell);
+                    } else if (c == 'B') {
+                        shell_hist_down(shell);
+                    }
+                }
+            } else if (c == '\r') {
+                c = '\n';
+                if (shell_process_stdin(shell, c) == EXIT_FAILURE) {
+                    break;
+                }
+            } else if (shell_process_stdin(shell, c) == EXIT_FAILURE) {
                 break;
             }
         }
