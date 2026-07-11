@@ -8,23 +8,27 @@
 #include <string.h>
 
 #define ANSI_CLEAR "\033[2J\033[H"
+#define CLEAR_LINE "\r\033[2K"
 #define UNKNOWN_MSG "Unknown command\n"
 #define IN_BUF_DIM 512
 #define OUT_BUF_DIM 512
 #define STDOUT_OPTIONS "\033[1m"
 #define STDIN_OPTIONS "\033[33m"
 #define REMOVE_OPTIONS "\033[0m"
+#define CURSOR_COLOR "\x1b[47m"
+#define HIDE_CURSOR "\x1b[?25l"
+
+
 
 struct shell {
     int uart_fp;
     char* std_i;
     char* std_o;
+    uint32_t cursor_position;
     history_t history;
 };
 
-static void renderLine(shell_t shell)
-{
-    fprintf(stdout, "\r\033[2K"); // clear line
+static void render_std_outpur(shell_t shell){
     fprintf(stdout, STDOUT_OPTIONS);
     for (size_t i = 0; i < strlen(shell->std_o); i++) {
         if (shell->std_o[i] == '\n') {
@@ -37,10 +41,40 @@ static void renderLine(shell_t shell)
         }
     }
     fprintf(stdout, REMOVE_OPTIONS);
+    fprintf(stdout, HIDE_CURSOR);
+}
+
+static void render_std_input(shell_t shell){
+    uint8_t cursor_dispeyed = 0;
 
     fprintf(stdout, STDIN_OPTIONS);
-    fprintf(stdout, "%s", shell->std_i);
+    for (size_t i=0; i<strlen(shell->std_i); i++) {
+        if (i==shell->cursor_position) {
+            cursor_dispeyed = 1;
+            fprintf(stdout, CURSOR_COLOR);
+            fprintf(stdout, "%c", shell->std_i[i]);
+            fprintf(stdout, REMOVE_OPTIONS);
+            fprintf(stdout, STDIN_OPTIONS);
+        }
+        else {
+            fprintf(stdout, "%c", shell->std_i[i]);
+        }
+    }
+    if(cursor_dispeyed == 0){
+        fprintf(stdout, CURSOR_COLOR);
+        fprintf(stdout, REMOVE_OPTIONS);
+        fprintf(stdout, STDIN_OPTIONS);
+    }
     fprintf(stdout, REMOVE_OPTIONS);
+    fprintf(stdout, HIDE_CURSOR);
+
+}
+
+static void renderLine(shell_t shell)
+{
+    fprintf(stdout, CLEAR_LINE);
+    render_std_outpur(shell);
+    render_std_input(shell);
     fflush(stdout);
 }
 
@@ -50,8 +84,9 @@ static void shell_process_cmd(shell_t const shell)
 {
 
     // if it's a NULL pointer or a 0 len char arr
-    if (!shell || !(shell->std_i) || strlen(shell->std_i) == 0)
+    if (!shell || !(shell->std_i) || strlen(shell->std_i) == 0){
         return;
+    }
 
     // cut the std_i buff to remove \r and \n
     char cmd[IN_BUF_DIM];
@@ -67,7 +102,6 @@ static void shell_process_cmd(shell_t const shell)
 
     // if it's not a command print it to uart_fp
     if (shell->std_i[0] != '@') {
-        // memccpy(shell->std_i, shell->std_i + strlen(shell->std_i), IN_BUF_DIM - strlen(shell->std_i), IN_BUF_DIM);
         uart_write(shell->uart_fp, shell->std_i, strlen(shell->std_i));
     }
     // if it's CLEAR_CMD command print an error msg in the stderr
@@ -80,12 +114,11 @@ static void shell_process_cmd(shell_t const shell)
         fprintf(stderr, "ERROR: %s\n", UNKNOWN_MSG);
         fflush(stderr);
     }
-    return;
 }
 
 int shell_process_stdin(shell_t const shell, char const c)
 {
-    int tmp = 0;
+    size_t tmp = 0;
     historyReset(shell->history);
 
     if (c == '\n') {
@@ -102,24 +135,39 @@ int shell_process_stdin(shell_t const shell, char const c)
         }
 
         shell_process_cmd(shell);
+        shell->cursor_position=strlen(shell->std_i);
         renderLine(shell);
-        memccpy(shell->std_i, shell->std_i + strlen(shell->std_i), IN_BUF_DIM - strlen(shell->std_i), IN_BUF_DIM);
+        memccpy(shell->std_i,
+                shell->std_i + strlen(shell->std_i),
+                IN_BUF_DIM - strlen(shell->std_i),
+                IN_BUF_DIM);
+        shell->cursor_position=0;
         shell->std_o[0] = '\0';
 
     }
     // back space
     else if (c == '\b' || c == '\x7f') {
-        if (strlen(shell->std_i) > 0) {
-            shell->std_i[strlen(shell->std_i) - 1] = '\0';
+        if (shell->cursor_position>0) {
+            shell->cursor_position--;
+            memccpy(
+                shell->std_i+shell->cursor_position,
+                shell->std_i+shell->cursor_position+1,
+                strlen(shell->std_i+shell->cursor_position+1),
+                IN_BUF_DIM
+            );
+            renderLine(shell);
         }
-        renderLine(shell);
     }
     // Accumulate in the buffer the new character and null terminate the string
     else {
         if (strlen(shell->std_i) + 1 < IN_BUF_DIM) {
-            tmp = strlen(shell->std_i);
-            shell->std_i[tmp] = c;
-            shell->std_i[tmp + 1] = '\0';
+            memmove(
+                shell->std_i+shell->cursor_position+1,
+                shell->std_i+shell->cursor_position,
+                strlen(shell->std_i)+1-shell->cursor_position
+            );
+            shell->std_i[shell->cursor_position] = c;
+            shell->cursor_position++;
             renderLine(shell);
         } else {
             fprintf(stderr, "ERROR: input buffer overflow\r\n");
@@ -132,7 +180,7 @@ int shell_process_stdin(shell_t const shell, char const c)
 
 int shell_process_uart(shell_t const shell, char const* const c_arr)
 {
-    int16_t tmp = strlen(shell->std_o);
+    size_t tmp = strlen(shell->std_o);
     for (size_t i = 0; i < strlen(c_arr) + 1; i++) {
         if (tmp + i < OUT_BUF_DIM) {
             shell->std_o[tmp + i] = c_arr[i];
@@ -158,6 +206,7 @@ int shell_init(shell_t* newShell, char const* const port, int32_t const baud)
     (*newShell)->std_i = malloc(sizeof(*((*newShell)->std_i)) * IN_BUF_DIM);
     (*newShell)->std_i[0] = '\0';
     (*newShell)->uart_fp = uart_fd;
+    (*newShell)->cursor_position = 0;
     (*newShell)->history = historyInit();
 
     return uart_fd;
@@ -175,9 +224,10 @@ void shell_hist_up(shell_t shell)
     char* str = historyGetPrevious(shell->history);
     if (str != NULL) {
         memccpy(shell->std_i, str, strlen(str), IN_BUF_DIM);
+        shell->cursor_position=strlen(shell->std_i);
         free(str);
+        renderLine(shell);
     }
-    renderLine(shell);
 }
 
 void shell_hist_down(shell_t shell)
@@ -185,7 +235,21 @@ void shell_hist_down(shell_t shell)
     char* str = historyGetNext(shell->history);
     if (str != NULL) {
         memccpy(shell->std_i, str, strlen(str), IN_BUF_DIM);
+        shell->cursor_position=strlen(shell->std_i);
         free(str);
+        renderLine(shell);
     }
-    renderLine(shell);
+}
+
+void cursor_left(shell_t shell){
+    if(shell->cursor_position  > 0){
+        shell->cursor_position--;
+        renderLine(shell);
+    }
+}
+void cursor_right(shell_t shell){
+    if(shell->cursor_position  < strlen(shell->std_i)){
+        shell->cursor_position++;
+        renderLine(shell);
+    }
 }

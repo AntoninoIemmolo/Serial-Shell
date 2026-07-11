@@ -2,6 +2,7 @@
 #include "uart.h"
 #include <poll.h>
 #include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
@@ -27,8 +28,10 @@ static void restore_terminal(struct termios terminal)
 {
     tcsetattr(STDIN_FILENO, TCSANOW, &terminal);
 }
+
 int main(int argc, char* argv[])
-{
+{    
+
     int16_t tmp = 0;
     char uart_buf[UART_BUF_DIM];
     uart_buf[0] = '\0';
@@ -60,8 +63,9 @@ int main(int argc, char* argv[])
         int ret = poll(fds, 2, -1);
 
         // poll failed maybe because of SIGINT sent by the user, exit the loop
-        if (ret < 0)
+        if (ret < 0){
             break;
+        }
 
         // if I've been weken up because of file descriptor 0 have data
         if (fds[0].revents & POLLIN) {
@@ -70,17 +74,33 @@ int main(int argc, char* argv[])
                 fds[0].fd = -1;
             } else if (c == '\x03') {
                 break;
-            } else if (c == '\x1b' || c == '\033') {
+            } 
+            // Add arrow support
+            else if (c == '\x1b' || c == '\033') {
                 if (read(fds[0].fd, &c, 1) <= 0) {
                     fds[0].fd = -1;
                 } else if (c == '[') {
                     if (read(fds[0].fd, &c, 1) <= 0) {
                         fds[0].fd = -1;
-                    } else if (c == 'A') {
+                    } 
+                    // up arrow
+                    else if (c == 'A') {
                         shell_hist_up(shell);
-                    } else if (c == 'B') {
+                    } 
+                    // down arrow
+                    else if (c == 'B') {
                         shell_hist_down(shell);
                     }
+                    // right arrow
+                    else if (c == 'C') {
+                        cursor_right(shell);
+                    }
+                    // left arrow
+                    else if (c == 'D') {
+                        cursor_left(shell);
+                    }
+
+
                 }
             } else if (c == '\r') {
                 c = '\n';
