@@ -55,8 +55,8 @@ int main(int argc, char* argv[])
     fds[1].fd = uart_fd;
     fds[1].events = POLLIN;
 
-    fprintf(stdin, "Type @clear to clear stdin, Ctrl-C to exit.\r\n");
-    fflush(stdin);
+    fprintf(stdout, "Type @clear to clear stdin, Ctrl-C to exit.\r\n");
+    fflush(stdout);
 
     while (1) {
         // poll(file_descriptior_arr, number_of_file_descriptior, time_out [ms] -1(for ever))
